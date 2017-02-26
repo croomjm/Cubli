@@ -1,20 +1,13 @@
 #derived from adafruit PWM servo driver written for arduino
 #https://github.com/adafruit/Adafruit-PWM-Servo-Driver-Library
 
-#
-#
-#
-#need to understand the meaning of offset vs. subaddress
-#in PWM library and in python SMBus library. Make sure
-#interpretation is correct before running commands.
-#
-#
-#
-#
-#
+#deal with nested file structure...
+import smbus2.smbus2.smbus2 as smbus2
 
-import smbus2
 from time import sleep
+#import matplotlib ##need to import this
+
+verbose = True #toggle to False to suppress debug output
 
 DEVICE_ADDRESS = 0x40 #default pwm driver address
 
@@ -35,60 +28,131 @@ ALLLED_ON_H = 0xFB
 ALLLED_OFF_L = 0xFC
 ALLLED_OFF_H = 0xFD
 
-pwm_frequency = 1600
+pwm_frequency = 500 #desired refresh rate; reset to exact value following setPWMfreq
+#make sure frequency results in window width that is greater than full_forward width
+#condition: 1/pwm_frequency*10**6 > full_forward (with some margin)
+
 full_reverse = 1100 #pulse width in microseconds for full reverse
-full_forward = 1520 #pulse width in microseconds for full forward
-min_pulse_width = 10**6/4096/pwm_frequency
+full_forward = 1940 #pulse width in microseconds for full forward
+neutral = 1520 #pulse width in microseconds for 0% throttle
 
-
-#resets PWM driver on startup
+#resets PWM driver MODE1 registers to default
 def reset():
-	bus = smbus2.SMBus(1)
-	bus.write8(PCA9685_MODE1, 0x0)
-	bus.close()
+	write8(PCA9685_MODE1, 0x0)
+	verbose_print('Device has been reset.')
 
-#sets 
-def setPWMfreq(freq, bus):
-	print 'Attempting to set frequency to '+ freq +'Hz'
-	freq *= 0.9 #fix issue where requested frequency is overshot by factor of 1/0.9
-	prescale = int(round(25000000 / 4096 / freq - 1))
+#given prescale, calculate effective refresh rate; return refresh rate (float) 
+def calculate_refresh_rate(prescale):
+	return 25000000.0 / 4096/(prescale + 1)
+	#follows formula from table 5 of PCA9685 data sheet
 
-	print 'Estimated pre-scale: ', prescale
+#given refresh rate, calculate prescale; return prescale (float)
+def calculate_prescale(refresh_rate):
+	return 25000000.0 / 4096 / refresh_rate - 1
+	#follows formula from table 5 of PCA9685 data sheet
 
-	oldmode = read8(PCA9685_MODE1, 0x0)
-	newmode = (oldmode&0x7F) | 0x10 #sleep
+#set refresh rate of PWM driver; return estimated refresh rate in Hz
+def setPWMfreq(desired_freq):
+	#fix issue where requested frequency is overshot by factor of 1/0.9
+	frequency_scaling_factor = 0.9
+
+	verbose_print('Attempting to set frequency to {0} Hz'.format(desired_freq))
+	
+	commanded_freq = frequency_scaling_factor*desired_freq
+
+	prescale = calculate_prescale(commanded_freq)
+	verbose_print('Exact pre-scale is {0}'.format(prescale))
+
+	#round to nearest integer value
+	prescale = int(round(prescale))
+	verbose_print('Prescale rounded to {0}'.format(prescale))
+
+	#actual commanded frequency given rounded prescale value
+	commanded_frequency = calculate_refresh_rate(prescale)
+	verbose_print('Frequency to be commanded including correction factor and prescale rounding is {0:.2f} Hz.'.format(commanded_frequency))
+
+	estimated_output_frequency = commanded_frequency/frequency_scaling_factor
+	verbose_print('Output frequency will be approximately {0:.2f} Hz'.format(estimated_output_frequency))
+
+	oldmode = read8(PCA9685_MODE1)
+	verbose_print(MODE1_status())
+	newmode = oldmode | 0x10 #enable sleep bit (bit 4)
+	#newmode = (oldmode & 0x7F) | 0x10 #sleep
+	
+	verbose_print("\nSetting newmode to {0:08b}. (Sleep mode)".format(newmode))
 	write8(PCA9685_MODE1, newmode)
+	verbose_print(MODE1_status())
+
+	verbose_print("\nSetting PRESCALE to {0}".format(prescale))
 	write8(PCA9685_PRESCALE, prescale)
+	verbose_print("PRESCALE now set to: {0}".format(read8(PCA9685_PRESCALE)))
+	
+	verbose_print("\nReverting MODE1 to old mode: {0:08b}".format(oldmode))
 	write8(PCA9685_MODE1, oldmode)
+	verbose_print(MODE1_status())
+	
 	sleep(0.005)
 
 	#set MODE1 register to turn on auto increment
-	write8(PCA9685_MODE1, oldmode | 0xa1)
+	verbose_print('\nEnabling auto-increment. (Bit 5)')
+	write8(PCA9685_MODE1, oldmode | 0xa0)
+	verbose_print(MODE1_status())
 
-	print 'Mode now {0:#04x}'.format(bus.read_byte_data(PCA9685_MODE1,0))
+	estimated_window_width = 1/estimated_output_frequency*10**6
+	verbose_print("Estimated window width = 1/estimated_pwm_frequency = {0:.2f}".format(1/estimated_output_frequency*10**6))
+	if estimated_window_width - full_forward > 50:
+		print 'WARNING! Estimated pwm window width close to or less than 100%% forward throttle pulse duration.\n'
+		print 'Reset PWM frequency to greater than (full forward throttle pulse with)^-1 to avoid issues.'
 
-def return_off_bit(throttle):
-	off_bit = full_reverse/min_pulse_width + (full_forward - full_reverse)/(200*min_pulse_width)*throttle + 1
-	return int(round(off_bit))
+	return estimated_output_frequency
+
+def return_on_counts(throttle):
+	#calculate on count by linear interpolation between -100% and +100% throttle
+
+	#convert throttle required to pulse width in microseconds
+	pulse_width = (full_forward - full_reverse)/200*(throttle+100)+full_reverse
+
+	#convert pulse width required to number of counts in pwm refresh window
+	counts = pulse_width*pwm_frequency*10**(-6)*4096 - 1
+	pulse_width = (counts+1)/(pwm_frequency*10**(-6)*4096)
+	verbose_print("Returning on counts for {0}% throttle: {1}".format(throttle, counts))
+	verbose_print("Approximate pulse width: {0} us".format(pulse_width))
+	
+	return [int(round(counts)), pulse_width]
 
 def setPWM(num, throttle):
+	on = 0b000000000110 #optional delay time until pulse width begins in binary
+	off, pulse_width= return_on_counts(throttle)
+	
 
-	off = return_off_bit(throttle)
-	on = 0
+	verbose_print('Converting variable \'off\' to 12-bit binary representation.')
+	off = '{0:12b}'.format(off)
+	verbose_print('Variable \'off\' = {0}'.format(off))
 
+	verbose_print("Setting PWM {0}:{1}->{2}".format(num, on, off))
+	#verbose_print("Approximate pulse width: {0} us").format(pulse_width)
 
-	print "Setting PWM {0}:{1}->{2}".format(num, on, off)
-	bus = smbus.SMBus(1)
 
 	#note: Each channel has 4 byte addresses for LED_ON_L,
 	#LED_ON_H, LED_OFF_L, and LED_OFF_H. Shifting from LED0_ON_L
 	#by 4*num gets to LED{num}_ON_L. 16-bit on time and off time
 	#are written are written to each of the 4 registers in sequence.
-	#Ex (LED0 90% Duty cycle -> LED off at 0.9*4096):
-	#write_array = [LED0_ON_L, 0, 0, 0.9*4096, 0.9*4096>>8]
-	write_array = [LED0_ON_L+4*num, on, on>>8, off, off>>8]
-	bus.write_i2c_block_data(DEVICE_ADDRESS,0,write_array)
-	bus.close()
+	#See PCA9865 documentation for more details.
+	
+	#start_register = LED0_ON_L + 4*num
+	#write_array = [on, on>>8, off, off>>8]
+
+	#verbose_print('Start register is {0:#03x}'.format(start_register))
+	#verbose_print('Write array is [{0},{1},{2},{3}]').format(zip(*write_array))
+	
+	#bus = smbus2.SMBus(1)
+	#for i in xrange(4):
+	#	bus.write_byte_data(DEVICE_ADDRESS, start_register+i, write_array[])
+	#bus.write_byte_data(DEVICE_ADDRESS, start_register, on)
+	#bus.write_byte_data(DEVICE_ADDRESS, start_register + 1, on>>8)
+	#bus.write_byte_data(DEVICE_ADDRESS, start_register + 2, off)
+	#bus.write_byte_data(DEVICE_ADDRESS, start_register + 3, off>>8)
+	#bus.close()
 
 
 #
@@ -102,23 +166,36 @@ def setPWM(num, throttle):
 
 #function to open comm, write data, close comm
 def write8(addr,d):
-	bus = smbus.SMBus(1)
-	bus.write_byte_data(DEVICE_ADDRESS,0,addr)
-	bus.write_byte_data(DEVICE_ADDRESS,0,d)
+	bus = smbus2.SMBus(1)
+	bus.write_byte_data(DEVICE_ADDRESS,addr,d)
 	bus.close()
-
 
 #function to open comm, read data, close comm
 def read8(addr):
-	bus = smbus.SMBus(1)
-	#not sure if this is right...
-	#send local address to request data from,
-	#then retrieve that data?
-	bus.write_byte_data(DEVICE_ADDRESS,0,addr)
-	bus.read_byte_data(DEVICE_ADDRESS,0)
+	bus = smbus2.SMBus(1)
+	data = bus.read_byte_data(DEVICE_ADDRESS,addr)
 	bus.close()
+	return data
 
+#return pretty print string of MODE1 register values
+def MODE1_status():
+	output = ["MODE1 Status:\n"]
+	mode_1_status = list('{0:08b}'.format(read8(PCA9685_MODE1)))
+	mode_1_registers = ['Restart (bit 7)', 'EXTCLK (bit 6)', 'AI (BIT 5)', 'SLEEP (BIT 4)', 'SUB1 (BIT 3)', 'SUB2 (BIT 2)', 'SUB3 (BIT 1)', 'ALLCALL (BIT 0)']
+	for b in mode_1_registers:
+		output.append('{0}:  {1}\n'.format(b,mode_1_status.pop(0)))
+	output.append('\n')
+	return ''.join(output)
+
+#prints debug info if 'verbose' set to True
+def verbose_print(*arg):
+	if(verbose):
+		for a in arg:
+			print a
+	return None
+
+MODE1_status()
+print '\n'
 reset()
-setPWMfreq(pwm_frequency)
-set_pwm(0,50)
-
+pwm_frequency = setPWMfreq(pwm_frequency)
+setPWM(0,0)
