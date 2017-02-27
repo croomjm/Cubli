@@ -32,9 +32,9 @@ pwm_frequency = 500 #desired refresh rate; reset to exact value following setPWM
 #make sure frequency results in window width that is greater than full_forward width
 #condition: 1/pwm_frequency*10**6 > full_forward (with some margin)
 
-full_reverse = 1100 #pulse width in microseconds for full reverse
-full_forward = 1940 #pulse width in microseconds for full forward
-neutral = 1520 #pulse width in microseconds for 0% throttle
+full_reverse = 1100.0 #pulse width in microseconds for full reverse
+full_forward = 1940.0 #pulse width in microseconds for full forward
+neutral = 1520.0 #pulse width in microseconds for 0% throttle
 
 #resets PWM driver MODE1 registers to default
 def reset():
@@ -100,7 +100,7 @@ def setPWMfreq(desired_freq):
 
 	estimated_window_width = 1/estimated_output_frequency*10**6
 	verbose_print("Estimated window width = 1/estimated_pwm_frequency = {0:.2f}".format(1/estimated_output_frequency*10**6))
-	if estimated_window_width - full_forward > 50:
+	if estimated_window_width < full_forward + 50:
 		print 'WARNING! Estimated pwm window width close to or less than 100%% forward throttle pulse duration.\n'
 		print 'Reset PWM frequency to greater than (full forward throttle pulse with)^-1 to avoid issues.'
 
@@ -110,26 +110,35 @@ def return_on_counts(throttle):
 	#calculate on count by linear interpolation between -100% and +100% throttle
 
 	#convert throttle required to pulse width in microseconds
-	pulse_width = (full_forward - full_reverse)/200*(throttle+100)+full_reverse
+	pulse_width = (full_forward - full_reverse)/200*(throttle+100) + full_reverse
 
 	#convert pulse width required to number of counts in pwm refresh window
 	counts = pulse_width*pwm_frequency*10**(-6)*4096 - 1
-	pulse_width = (counts+1)/(pwm_frequency*10**(-6)*4096)
-	verbose_print("Returning on counts for {0}% throttle: {1}".format(throttle, counts))
-	verbose_print("Approximate pulse width: {0} us".format(pulse_width))
+	counts = int(round(counts))
+
+	#confirm pulse width output after rounding counts to nearest value
+	pulse_width = (counts+1)/(pwm_frequency*10.0**(-6)*4096)
+	verbose_print("Calculated on counts for {0}% throttle: {1} counts".format(throttle, counts))
+	verbose_print("Approximate pulse width: {0:.0f} us".format(pulse_width))
 	
-	return [int(round(counts)), pulse_width]
+	return [counts, pulse_width]
 
 def setPWM(num, throttle):
-	on = 0b000000000110 #optional delay time until pulse width begins in binary
-	off, pulse_width= return_on_counts(throttle)
 	
+	#get pulse width and off bit to achieve throttle
+	off, pulse_width= return_on_counts(throttle)
 
-	verbose_print('Converting variable \'off\' to 12-bit binary representation.')
-	off = '{0:12b}'.format(off)
+	#optional delay time until pulse width begins in binary
+	#must be in 12-bit format
+	on = 10 #in counts, decimal
+	off = off + on #shift off time by on delay time
+
+	#verbose_print('Converting variable \'off\' to 12-bit binary representation.')
+	#off = '{0:12b}'.format(off)
+	verbose_print('Variable \'on\' = {0}'.format(on))
 	verbose_print('Variable \'off\' = {0}'.format(off))
 
-	verbose_print("Setting PWM {0}:{1}->{2}".format(num, on, off))
+	verbose_print("Setting PWM {0}: {1}->{2}".format(num, on, off))
 	#verbose_print("Approximate pulse width: {0} us").format(pulse_width)
 
 
@@ -139,21 +148,40 @@ def setPWM(num, throttle):
 	#are written are written to each of the 4 registers in sequence.
 	#See PCA9865 documentation for more details.
 	
-	#start_register = LED0_ON_L + 4*num
-	#write_array = [on, on>>8, off, off>>8]
+	start_register = LED0_ON_L + 4*num
+	write_array = [on, on>>8, off, off>>8]
 
-	#verbose_print('Start register is {0:#03x}'.format(start_register))
-	#verbose_print('Write array is [{0},{1},{2},{3}]').format(zip(*write_array))
-	
-	#bus = smbus2.SMBus(1)
-	#for i in xrange(4):
-	#	bus.write_byte_data(DEVICE_ADDRESS, start_register+i, write_array[])
-	#bus.write_byte_data(DEVICE_ADDRESS, start_register, on)
-	#bus.write_byte_data(DEVICE_ADDRESS, start_register + 1, on>>8)
-	#bus.write_byte_data(DEVICE_ADDRESS, start_register + 2, off)
-	#bus.write_byte_data(DEVICE_ADDRESS, start_register + 3, off>>8)
-	#bus.close()
+	verbose_print('Start register is {0:#03x}'.format(start_register))
+	verbose_print('Write Array = {0:012b}, {1:012b}, {2:012b}, {3:012b}'.format(*write_array))
 
+
+	verbose_print('Writing on and off counts to channel {0}'.format(num))
+	bus = smbus2.SMBus(1)
+	for i in xrange(4):
+		verbose_print('Writing write array element {0} = {1:#012b} to register {2:#03x}'.format(i,write_array[i],start_register+i))
+		bus.write_byte_data(DEVICE_ADDRESS, start_register+i, write_array[i])
+		
+		#check values were written correctly
+		new_value = bus.read_byte_data(DEVICE_ADDRESS, start_register+i)
+		verbose_print('Register {0:#03x} value is now {1:#08b}'.format(start_register+i,new_value))
+	bus.close()
+
+def motor_startup():
+	#set all 3 channels to neutral
+	setPWM(0,0)
+	setPWM(1,0)
+	setPWM(2,0)
+
+	#plug in the ESCs!!
+	raw_input('Plug in the power supply. Press enter to continue...')
+
+	#wait until motor controller starts up
+	#sleep(2.0)
+
+	#move throttle to slightly over 50%
+	setPWM(0,55)
+	setPWM(1,55)
+	setPWM(2,55)
 
 #
 #
@@ -198,4 +226,8 @@ MODE1_status()
 print '\n'
 reset()
 pwm_frequency = setPWMfreq(pwm_frequency)
+print 'PWM frequency before setting PWM: {0:.02f} Hz'.format(pwm_frequency)
+
+motor_startup()
+
 setPWM(0,0)
