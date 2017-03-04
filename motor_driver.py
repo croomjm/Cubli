@@ -4,7 +4,9 @@
 #deal with nested file structure...
 import smbus2.smbus2.smbus2 as smbus2
 
-from time import sleep
+import math
+
+import time
 #import matplotlib ##need to import this
 
 verbose = True #toggle to False to suppress debug output
@@ -54,7 +56,7 @@ def calculate_prescale(refresh_rate):
 #set refresh rate of PWM driver; return estimated refresh rate in Hz
 def setPWMfreq(desired_freq):
     #fix issue where requested frequency is overshot by factor of 1/0.9
-    frequency_scaling_factor = 0.9
+    frequency_scaling_factor = 0.97
 
     verbose_print('Attempting to set frequency to {0} Hz'.format(desired_freq))
     
@@ -91,7 +93,7 @@ def setPWMfreq(desired_freq):
     write8(PCA9685_MODE1, oldmode)
     verbose_print(MODE1_status())
     
-    sleep(0.005)
+    time.sleep(0.005)
 
     #set MODE1 register to turn on auto increment
     verbose_print('\nEnabling auto-increment. (Bit 5)')
@@ -150,8 +152,8 @@ def setPWM(num, throttle = 0, counts = None):
 
     #verbose_print('Converting variable \'off\' to 12-bit binary representation.')
     #off = '{0:12b}'.format(off)
-    verbose_print('Variable \'on\' = {0}'.format(on))
-    verbose_print('Variable \'off\' = {0}'.format(off))
+    #verbose_print('Variable \'on\' = {0}'.format(on))
+    #verbose_print('Variable \'off\' = {0}'.format(off))
 
     verbose_print("Setting PWM {0}: {1}->{2}".format(num, on, off))
     #verbose_print("Approximate pulse width: {0} us").format(pulse_width)
@@ -166,19 +168,19 @@ def setPWM(num, throttle = 0, counts = None):
     start_register = LED0_ON_L + 4*num
     write_array = [on, on>>8, off, off>>8]
 
-    verbose_print('Start register is {0:#03x}'.format(start_register))
-    verbose_print('Write Array = {0:012b}, {1:012b}, {2:012b}, {3:012b}'.format(*write_array))
+    #verbose_print('Start register is {0:#03x}'.format(start_register))
+    #verbose_print('Write Array = {0:012b}, {1:012b}, {2:012b}, {3:012b}'.format(*write_array))
 
 
-    verbose_print('Writing on and off counts to channel {0}'.format(num))
+    #verbose_print('Writing on and off counts to channel {0}'.format(num))
     bus = smbus2.SMBus(1)
     for i in xrange(4):
-        verbose_print('Writing write array element {0} = {1:#012b} to register {2:#03x}'.format(i,write_array[i],start_register+i))
+        #verbose_print('Writing write array element {0} = {1:#012b} to register {2:#03x}'.format(i,write_array[i],start_register+i))
         bus.write_byte_data(DEVICE_ADDRESS, start_register+i, write_array[i])
         
         #check values were written correctly
         new_value = bus.read_byte_data(DEVICE_ADDRESS, start_register+i)
-        verbose_print('Register {0:#03x} value is now {1:#08b}'.format(start_register+i,new_value))
+        #verbose_print('Register {0:#03x} value is now {1:#08b}'.format(start_register+i,new_value))
     bus.close()
 
 #startup routine to enable motor controllers
@@ -187,17 +189,19 @@ def motor_startup():
     setPWM(0,0)
     setPWM(1,0)
     setPWM(2,0)
+    setPWM(4,0)
 
     #plug in the ESCs!!
     raw_input('Plug in the power supply. Press enter to continue...')
 
     #wait until motor controller starts up
-    #sleep(2.0)
+    #time.sleep(2.0)
 
     #move throttle to slightly over 50%
-    setPWM(0,55)
-    setPWM(1,55)
-    setPWM(2,55)
+    setPWM(0,70)
+    setPWM(1,70)
+    setPWM(2,70)
+    setPWM(4,70)
 
 #function to open comm, write data, close comm
 def write8(addr,d):
@@ -237,4 +241,26 @@ print 'PWM frequency before setting PWM: {0:.02f} Hz'.format(pwm_frequency)
 
 motor_startup()
 
-setPWM(0,0)
+def wave(amp, phi, f, t):
+    return amp*math.sin(f*t + phi)
+
+setPWM(0,-10)
+setPWM(1,0)
+setPWM(2,0)
+#setPWM(4,-10)
+
+##while True:
+##    throttle = 80*math.sin(0.1*time.time())
+##    setPWM(4,throttle)
+##    setPWM(0,throttle)
+
+#drive motors in wave
+pi = 3.14159
+freq = 0 #wave frequency in Hz
+freq = 1.0 #wave frequency in radians/s
+nmotors = 3
+while True:
+    for pwmNum in xrange(nmotors):
+        print 'PWM Num = {0}'.format(pwmNum)
+        setPWM(pwmNum,wave(100, 2*pi/nmotors*pwmNum, freq, time.time()))
+        #setPWM(pwmNum,0)
