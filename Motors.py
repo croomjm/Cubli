@@ -22,7 +22,7 @@ ALLLED_ON_H = 0xFB
 ALLLED_OFF_L = 0xFC
 ALLLED_OFF_H = 0xFD
 
-verbose = True #toggle to False to suppress debug output
+verbose = False #toggle to False to suppress debug output
 
 
 #driver for adafruit PWM servo driver

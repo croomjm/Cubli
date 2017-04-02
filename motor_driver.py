@@ -1,11 +1,10 @@
-#derived from adafruit PWM servo driver written for arduino
-#https://github.com/adafruit/Adafruit-PWM-Servo-Driver-Library
+#driver for adafruit PWM servo driver
+#derived from https://github.com/adafruit/Adafruit-PWM-Servo-Driver-Library
+#uses NXP PCA 9685 16-channel, 12-bit PWM controller
 
 #deal with nested file structure...
 import smbus2.smbus2.smbus2 as smbus2
-
 import math
-
 import time
 #import matplotlib ##need to import this
 
@@ -40,8 +39,11 @@ neutral = 1520.0 #pulse width in microseconds for 0% throttle
 
 #resets PWM driver MODE1 registers to default
 def reset():
-    write8(PCA9685_MODE1, 0x0)
+    verbose_print(MODE1_status())
+    write_array(PCA9685_MODE1,[0x0, 0x6])
     verbose_print('Device has been reset.')
+    verbose_print(MODE1_status())
+
 
 #given prescale, calculate effective refresh rate; return refresh rate (float) 
 def calculate_refresh_rate(prescale):
@@ -108,17 +110,16 @@ def setPWMfreq(desired_freq):
 
     return estimated_output_frequency
 
+#convert throttle required to pulse width in microseconds
 def return_pulse_width_from_counts(counts):
-    #convert throttle required to pulse width in microseconds
     return (counts+1)/(pwm_frequency*10.0**(-6)*4096)
 
+#convert throttle required to pulse width in microseconds
 def return_pulse_width_from_throttle(throttle):
-    #convert throttle required to pulse width in microseconds
     return (full_forward - full_reverse)/200*(throttle+100) + full_reverse
 
+#calculate on counts by linear interpolation between min and max throttle
 def return_on_counts(throttle):
-    #calculate on count by linear interpolation between -100% and +100% throttle
-
     #convert throttle required to pulse width in microseconds
     pulse_width = return_pulse_width_from_throttle(throttle)
 
@@ -133,6 +134,7 @@ def return_on_counts(throttle):
     
     return [counts, pulse_width]
 
+#function to set PWM output using either throttle or counts as input
 def setPWM(num, throttle = 0, counts = None):
 
     #if counts is defined, use this directly
@@ -203,6 +205,12 @@ def motor_startup():
     setPWM(2,70)
     setPWM(4,70)
 
+def write_array(addr, array):
+    bus = smbus2.SMBus(1)
+    for d in array:
+        bus.write_byte_data(DEVICE_ADDRESS,addr,d)
+        time.sleep(0.010)
+    bus.close()
 #function to open comm, write data, close comm
 def write8(addr,d):
     bus = smbus2.SMBus(1)
@@ -216,7 +224,7 @@ def read8(addr):
     bus.close()
     return data
 
-#return pretty print string of MODE1 register values
+#return formatted string of MODE1 register values
 def MODE1_status():
     output = ["MODE1 Status:\n"]
     mode_1_status = list('{0:08b}'.format(read8(PCA9685_MODE1)))

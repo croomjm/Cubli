@@ -1,3 +1,6 @@
 [submodule "smbus2"]
 	path = smbus2
 	url = https://github.com/kplindegaard/smbus2.git
+[submodule "Adafruit_Python_BNO055"]
+	path = Adafruit_Python_BNO055
+	url = https://github.com/adafruit/Adafruit_Python_BNO055.git

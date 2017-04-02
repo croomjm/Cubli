@@ -54,8 +54,7 @@ def encoderPositionChange(e):
 #Main Program Code
 try:
 	#logging example, uncomment to generate a log file
-    encoder.enableLogging(PhidgetLogLevel.PHIDGET_LOG_VERBOSE, "phidgetlog.log")
-
+    #encoder.enableLogging(PhidgetLogLevel.PHIDGET_LOG_VERBOSE, "phidgetlog.log")
     encoder.setOnAttachHandler(encoderAttached)
     encoder.setOnDetachHandler(encoderDetached)
     encoder.setOnErrorhandler(encoderError)
@@ -97,14 +96,17 @@ for i in xrange(3):
 def positionChange():
     print "I moved..."
 
-encoder.setOnPositionChangeHandler(positionChange)
+#encoder.setOnPositionChangeHandler(positionChange)
 
 
 print 'Press Enter to Continue...'
 chr = sys.stdin.read(1)
 
+
+
+'''
 positions = [0,0,0,0]
-position_log = [0,0,0,0,0]
+position_log = [[0,0,0,0,0]]
 time_init = time.time()
 for j in xrange(1000):
     for i in xrange(3):
@@ -112,14 +114,16 @@ for j in xrange(1000):
         print "Position of channel {0}: {1} pulses".format(i, positions[i])
         position_log.append([time.time()-time_init].extend(positions))
     time.sleep(.25)
+'''
 
 
 print("Closing...")
 
+"""
 print "Position log:"
 for l in position_log:
     print ','.join(l)
-
+"""
 
 try:
     encoder.closePhidget()

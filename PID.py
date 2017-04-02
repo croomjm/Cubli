@@ -9,7 +9,6 @@ __maintainer__ = "Jordan Croom"
 __email__ = "croomjm@gmail.com"
 __status__ = "Prototype"
 
-from collections import defaultDict
 import types
 
 class PID:
@@ -132,7 +131,7 @@ class PID:
 			raise RuntimeError('User input of K = {0}, Ti = {1}, Td = {2} is invalid. Proportional gain (K) is required.'.format(K,Ti,Td))
 
 	def __setConstant(self, constant, name):
-		if type(constant) is not in [int,float]:
+		if type(constant) not in [int,float]:
 			raise TypeError('Invalid type for {0} (provided {1}, type is {2}). Type must be either int or float.'.format(name, constant, type(constant)))
 		
 		constant = float(constant)
@@ -142,10 +141,10 @@ class PID:
 			self.parameters[name] = constant
 
 	def __sethHandle(self, timing_mode, h = None):
-		if timing_mode = 'variable':
+		if timing_mode == 'variable':
 			self.__returnh = lambda x: x - self.told
-		elif timing_mode = 'constant':
-			if type(h) is not in [int, float]:
+		elif timing_mode == 'constant':
+			if type(h) not in [int, float]:
 				raise TypeError('Variable timing selected, but value of h ({0}, type: {1}) provided is not int or float type.'.format(h, type(h)))
 			elif h<0:
 				raise RuntimeError('Value of h provided ({0}, type: {1}) is negative. This would cause the control loop to diverge.'.format(h, type(h)))

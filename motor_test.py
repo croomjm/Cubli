@@ -22,14 +22,21 @@ if __name__ == "__main__":
         print 'PWM frequency before setting PWM: {0:.02f} Hz'.format(motors.PWM_frequency)
 
         motors.motor_startup()
+        for pwmNum in xrange(nmotors):
+            print 'PWM Num = {0}'.format(pwmNum)
+            motors.setPWM(pwmNum,50)
 
+        while True:
+            time.sleep(1)
         #drive motors in wave
+        """
         pi = 3.14159
         freq = 1.0 #wave frequency in radians/s
         while True:
             for pwmNum in xrange(nmotors):
                 print 'PWM Num = {0}'.format(pwmNum)
                 motors.setPWM(pwmNum,wave(100, 2*pi/nmotors*pwmNum, freq, time.time()))
+        """
     except KeyboardInterrupt:
         print "Interrupt Detected"
         for i in xrange(nmotors):
