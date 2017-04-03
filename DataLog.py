@@ -102,13 +102,9 @@ class DataLog:
 
         filePath = str(filePath)
 
-        with open(filePath, 'r') as f:
+        try:
+            with open(filePath, 'r') as f:
                 obj = jsonpickle.decode(f.read(), keys = True)
-        return obj
-
-        # try:
-        #     with open(filePath, 'r') as f:
-        #         obj = jsonpickle.decode(f.read(), backend = 'simplejson', keys = True)
-        #     return obj
-        # except:
-        #     raise RuntimeError('Unable to open and decode json file at {0}'.format(filePath))
+            return obj
+        except:
+            raise RuntimeError('Unable to open and decode json file at {0}'.format(filePath))
