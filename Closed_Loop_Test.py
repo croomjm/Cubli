@@ -19,17 +19,33 @@ max_throttle_pulse_width = 1940 #in microseconds
 deadband = 20 #pulse width in microseconds
 throttle_deadband = 100*20/(1940-1100)/2.0
 PWM_frequency = 500 #in Hz
-kV = 300
+kV = 300 #RPM per volt
 supplyVoltage = 12
+velocityUnits = 'Hz'
+
+#conversions to radians per second
+velocityConversions = {
+    'Hz': 2*pi,
+    'RPM': 1.0/60.0*2*pi,
+    'rad/s': 1,
+    'deg/s': pi/180.0
+}
+
+def velocityConversion(velocity, unitFrom, unitTo):
+    #convert to rad/s
+    velocity *= velocityConversions[unitFrom]
+    #convert to output unit
+    velocity /= velocityConversions[unitTo]
+    return velocity
 
 def actuatorVelocityModel(throttle):
     if throttle>100:
-        return kV*supplyVoltage
+        return velocityConversion(kV*supplyVoltage, 'RPM', velocityUnits)
     if throttle<-100:
-        return -1*kV*supplyVoltage
+        return velocityConversion(-1*kV*supplyVoltage, 'RPM', velocityUnits)
     if throttle<throttle_deadband and throttle>-throttle_deadband:
         return 0
-    return throttle/100.0*kV*12
+    return velocityConversion(throttle/100.0*kV*12, 'RPM', velocityUnits)
 
 def wave(amp, phi, f, t):
     return amp*sin(f*t + phi)
@@ -37,7 +53,11 @@ def wave(amp, phi, f, t):
 def main():
     try:
         dataLog = DataLog.DataLog(logDir = 'logs/')
-        encoders = Encoders.Encoders(countsPerRevolution = countsPerRevolution, units = 'Hz')
+        dataLog.updateLog({'velocity_units':velocityUnits})
+
+        encoders = Encoders.Encoders(countsPerRevolution = countsPerRevolution, units = velocityUnits)
+        #time.sleep(2) #allow encoder time to attach
+
         motors = Motors.Motors(i2c_bus_num,nmotors,min_throttle_percentage, max_throttle_percentage, min_throttle_pulse_width, max_throttle_pulse_width)
         
         #start motor communication
@@ -46,7 +66,10 @@ def main():
         for i in xrange(3):
             motors.setPWM(i, 0)
         
-        freq = 1/5.0    
+        freq = 1/2.0
+
+        dataLog.updateLog({'start_time': time.time()})
+
         while True:
             #get measured velocity array
             #calculate commanded velocities array
@@ -55,18 +78,19 @@ def main():
             loop_start_time = time.time()
             count_array = encoders.returnCountArray()
             measured_velocities = encoders.getVelocities()
+            print measured_velocities
             command_time = time.time()
-            commanded_throttles = [command_time] + [wave(100,2*pi/nmotors*pwmNum, freq, command_time) for pwmNum in xrange(nmotors)]
+            commanded_throttles = [wave(100,2*pi/nmotors*pwmNum, freq, command_time) for pwmNum in xrange(nmotors)]
             for pwmNum, throttle in enumerate(commanded_throttles):
                 motors.setPWM(pwmNum,throttle)
             loop_end_time = time.time()
 
             #write information to logs
             log_info = {
-                'counts': count_array,
-                'commanded_velocity': [command_time] + map(actuatorVelocityModel, commanded_throttles[1:]),
-                'commanded_throttle': commanded_throttles,
-                'measured_velocity': measured_velocities,
+                'counts': dict(zip(['time', 0, 1, 2], count_array)),
+                'commanded_velocity': dict(zip(['time', 0, 1, 2],[command_time] + map(actuatorVelocityModel, commanded_throttles))),
+                'commanded_throttle': dict(zip(['time', 0, 1, 2],[command_time] + commanded_throttles)),
+                'measured_velocity': dict(zip(['time', 0, 1, 2], measured_velocities)),
                 'iteration_latency': loop_end_time - loop_start_time,
                 'command_latency': loop_end_time - command_time,
                 'measurement_to_command_latency': command_time - measured_velocities[0]
@@ -74,7 +98,9 @@ def main():
             dataLog.updateLog(log_info)
 
     except KeyboardInterrupt:
-        dataLog.saveLog(baseName = 'Closed_Loop_Test')
+        for i in xrange(3):
+            motors.setPWM(i, 0)
+        dataLog.saveLog(baseName = 'Closed_Loop_Test')   
 
 if __name__ == '__main__':
     main()
