@@ -13,6 +13,7 @@ class DataLog:
         self.__buffer_length = buffer_length
         self.log = {
             '__buffer_length': self.__buffer_length, #max number of data points to save
+            'start_time': None,
             'counts': {
                 i: deque(maxlen = self.__buffer_length) for i in ['time', 0, 1, 2]
                 },
@@ -45,7 +46,7 @@ class DataLog:
         """
         Save all log information to file.
 
-        If filePath is provided, file is written to this directory (if it exists). Otherwise, the file path created in __init__ is used.
+        If fileDir is provided, file is written to this directory (if it exists). Otherwise, the file path created in __init__ is used.
 
         If fileName is provided, file is written with this file name. Otherwise, a file name is generated based on the file in which DataLog instance is created. This fileName will override a baseName if provided.
 
@@ -56,6 +57,7 @@ class DataLog:
         jsonpickle.set_encoder_options('simplejson', sort_keys=True, indent=4)
         jsonpickle.set_preferred_backend('simplejson')
 
+        #check supplied fileDir (if provided)
         if fileDir:
             fileDir = str(fileDir)
             if not os.path.isdir(fileDir):
@@ -64,6 +66,7 @@ class DataLog:
         else:
             fileDir = self.logDir
 
+        #check supplied fileName or baseName (if provided)
         if fileName:
             fileName = fileDir + str(fileName) + '.json'
         else:
@@ -77,6 +80,7 @@ class DataLog:
 
             fileName = fileDir + baseName + '_' + str(datetime.now()) + '.json'
 
+        #save the log file
         try:
             with open(fileName, 'w') as f:
                 f.write(jsonpickle.encode(self.log, keys = True))
@@ -89,8 +93,8 @@ class DataLog:
             if isinstance(self.log[input_key],deque):
                 self.log[input_key].append(kwDict[input_key])
             elif type(self.log[input_key]) is dict:
-                for i,key in enumerate(self.log[input_key]):
-                        self.log[input_key][key].append(kwDict[input_key][i]) 
+                for key in self.log[input_key]:
+                    self.log[input_key][key].append(kwDict[input_key][key]) 
             else:
                 self.log[input_key] = kwDict[input_key]
                 #raise TypeError("Function 'updateLog' received input in 'kwDict' that was neither dictType or an instance of deque.")
